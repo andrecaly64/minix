@@ -136,6 +136,14 @@ struct proc {
 #endif
 };
 
+/* Definições para fila de prioridades estáticas */
+#define NUM_PRIORITIES 16  // Número de níveis de prioridade (0-15)
+#define QUEUE_SIZE_PER_PRIORITY 32  // Tamanho máximo de cada fila de prioridade
+
+EXTERN struct proc *priority_queues[NUM_PRIORITIES][QUEUE_SIZE_PER_PRIORITY];
+EXTERN int queue_front[NUM_PRIORITIES];
+EXTERN int queue_rear[NUM_PRIORITIES];
+
 #endif /* __ASSEMBLY__ */
 
 /* Bits for the runtime flags. A process is runnable iff p_rts_flags == 0. */
