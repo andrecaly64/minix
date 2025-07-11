@@ -1602,14 +1602,14 @@ void cause_scheduling(void) {
  *				enqueue					     * 
  *===========================================================================*/
 void enqueue(struct proc *rp) {
-    assert(proc_is_runnable(rp));
-    int priority = rp->p_priority;
+    if (rp == NULL || !proc_is_runnable(rp)) {
+        return;  // Ou panic("Processo inválido");
+    }
     
-    if (priority < MIN_PRIO) priority = MIN_PRIO;
-    if (priority > MAX_PRIO) priority = MAX_PRIO;
+    int priority = CLAMP(rp->p_priority, MIN_PRIO, MAX_PRIO);
     
     if (prio_queue_counts[priority] >= TAM_MAX_FILA) {
-        panic("Fila de prioridade cheia!");
+        panic("Fila de prioridade %d cheia!", priority);
     }
     
     prio_queues[priority][prio_queue_rear[priority]] = rp;
@@ -1637,30 +1637,38 @@ void enqueue_head(struct proc *rp) {
  *				dequeue					     * 
  *===========================================================================*/
 void dequeue(struct proc *rp) {
-    int priority = rp->p_priority;
-    int i;
+    if (rp == NULL) {
+        return;
+    }
+    
+    int priority = CLAMP(rp->p_priority, MIN_PRIO, MAX_PRIO);
+    int i = prio_queue_front[priority];
+    int found = 0;
     
     assert(!proc_is_runnable(rp));
     
-    if (priority < MIN_PRIO) priority = MIN_PRIO;
-    if (priority > MAX_PRIO) priority = MAX_PRIO;
-    
-    // Procura o processo na fila de sua prioridade
-    for (i = prio_queue_front[priority]; i != prio_queue_rear[priority]; 
-         i = (i + 1) % TAM_MAX_FILA) {
+    for (int count = 0; count < prio_queue_counts[priority]; count++) {
         if (prio_queues[priority][i] == rp) {
-            // Remove o processo da fila
-            int j;
-            for (j = i; j != (prio_queue_rear[priority] - 1 + TAM_MAX_FILA) % TAM_MAX_FILA; 
-                 j = (j + 1) % TAM_MAX_FILA) {
-                prio_queues[priority][j] = prio_queues[priority][(j + 1) % TAM_MAX_FILA];
-            }
-            prio_queue_rear[priority] = (prio_queue_rear[priority] - 1 + TAM_MAX_FILA) % TAM_MAX_FILA;
-            prio_queue_counts[priority]--;
+            found = 1;
             break;
         }
+        i = (i + 1) % TAM_MAX_FILA;
     }
     
+    if (!found) {
+        return;  // Processo não encontrado na fila
+    }
+    
+    // Remove o processo da fila
+    for (int j = i; j != prio_queue_rear[priority]; 
+         j = (j + 1) % TAM_MAX_FILA) {
+        prio_queues[priority][j] = prio_queues[priority][(j + 1) % TAM_MAX_FILA];
+    }
+    
+    prio_queue_rear[priority] = (prio_queue_rear[priority] - 1 + TAM_MAX_FILA) % TAM_MAX_FILA;
+    prio_queue_counts[priority]--;
+    
+    // Atualiza estatísticas
     rp->p_accounting.dequeues++;
     if (rp->p_accounting.enter_queue) {
         u64_t tsc, tsc_delta;
@@ -1676,18 +1684,19 @@ void dequeue(struct proc *rp) {
  *				pick_proc				     * 
  *===========================================================================*/
 static struct proc * pick_proc(void) {
-    struct proc *rp;
-    int priority;
+    struct proc *rp = NULL;
     
     // Procura da maior prioridade (menor número) para a menor
-    for (priority = MIN_PRIO; priority <= MAX_PRIO; priority++) {
+    for (int priority = MIN_PRIO; priority <= MAX_PRIO; priority++) {
         if (prio_queue_counts[priority] > 0) {
-            // Pega o primeiro processo da fila desta prioridade
             rp = prio_queues[priority][prio_queue_front[priority]];
             prio_queue_front[priority] = (prio_queue_front[priority] + 1) % TAM_MAX_FILA;
             prio_queue_counts[priority]--;
             
-            assert(proc_is_runnable(rp));
+            if (!proc_is_runnable(rp)) {
+                panic("Processo não executável selecionado");
+            }
+            
             if (priv(rp)->s_flags & BILLABLE) {
                 get_cpulocal_var(bill_ptr) = rp;
             }
@@ -1695,8 +1704,7 @@ static struct proc * pick_proc(void) {
         }
     }
     
-    // Nenhum processo encontrado
-    return NULL;
+    return NULL;  // Nenhum processo executável encontrado
 }
 
 /*===========================================================================*
