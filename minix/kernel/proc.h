@@ -140,6 +140,7 @@ struct proc {
 /* Logo antes da primeira ocorrência de #endif __ASSEMBLY__ */
 
 /* Definições para filas de prioridade */
+#define TAM_MAX_FILA 256  // Tamanho máximo de cada fila de prioridade
 #define NR_PRIO_QUEUES 16  /* Já existente no Minix */
 #define MAX_PRIO 15        /* Prioridade máxima (mais baixa) */
 #define MIN_PRIO 0         /* Prioridade mínima (mais alta) */
