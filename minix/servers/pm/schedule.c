@@ -14,6 +14,27 @@
 #include <minix/timers.h>
 #include "kernel/proc.h"
 
+
+
+/* Função para ajustar prioridades dinamicamente */
+static void balance_queues(void)
+{
+    /* Implemente aqui sua política de ajuste de prioridades */
+    /* Exemplo: envelhecimento para evitar starvation */
+    
+    struct proc *rp;
+    int i;
+    
+    for (i = 0; i < NR_TASKS + NR_PROCS; i++) {
+        rp = &proc[i];
+        if (rp->p_rts_flags == 0 && rp->p_priority > MIN_PRIO) {
+            // Aumenta prioridade de processos que estão esperando muito
+            if (get_monotonic() - rp->p_dequeued > PRIO_AGING_THRESHOLD) {
+                rp->p_priority--;
+            }
+        }
+    }
+}
 /*===========================================================================*
  *				init_scheduling				     *
  *===========================================================================*/
