@@ -16,6 +16,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
+#include "proc.h"  // Para acessar update_preemption()
 
 #include "clock.h"
 
