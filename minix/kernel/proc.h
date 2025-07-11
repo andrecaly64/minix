@@ -137,13 +137,18 @@ struct proc {
 };
 
 /* Definições para fila de prioridades estáticas */
-#define NUM_PRIORITIES 16  // Número de níveis de prioridade (0-15)
-#define QUEUE_SIZE_PER_PRIORITY 256  // Tamanho máximo de cada fila de prioridade
-#define PREEMPTION_TICKS 10  // Quantidade de ticks de clock antes de preemptar
+/* Logo antes da primeira ocorrência de #endif __ASSEMBLY__ */
 
-EXTERN struct proc *priority_queues[NUM_PRIORITIES][QUEUE_SIZE_PER_PRIORITY];
-EXTERN int queue_front[NUM_PRIORITIES];
-EXTERN int queue_rear[NUM_PRIORITIES];
+/* Definições para filas de prioridade */
+#define NR_PRIO_QUEUES 16  /* Já existente no Minix */
+#define MAX_PRIO 15        /* Prioridade máxima (mais baixa) */
+#define MIN_PRIO 0         /* Prioridade mínima (mais alta) */
+
+/* Estrutura para manter as filas por prioridade */
+EXTERN struct proc *prio_queues[NR_PRIO_QUEUES][TAM_MAX_FILA];
+EXTERN int prio_queue_counts[NR_PRIO_QUEUES];
+EXTERN int prio_queue_front[NR_PRIO_QUEUES];
+EXTERN int prio_queue_rear[NR_PRIO_QUEUES];
 
 #endif /* __ASSEMBLY__ */
 
