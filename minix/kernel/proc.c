@@ -44,7 +44,7 @@
 struct proc *priority_queues[NUM_PRIORITIES][QUEUE_SIZE_PER_PRIORITY];
 int queue_front[NUM_PRIORITIES] = {0};
 int queue_rear[NUM_PRIORITIES] = {0};
-EXTERN unsigned preemption_count;
+EXTERN unsigned preemption_count = PREEMPTION_TICKS;  // Valor inicial
 
 /* Scheduling and message passing functions */
 static void idle(void);
