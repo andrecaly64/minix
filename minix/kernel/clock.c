@@ -78,6 +78,9 @@ int timer_int_handler(void)
 
 	struct proc * p, * billp;
 
+	/* Dentro de clock_handler() */
+	update_preemption();
+
 	/* FIXME watchdog for slave cpus! */
 #ifdef USE_WATCHDOG
 	/*
