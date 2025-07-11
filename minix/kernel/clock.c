@@ -23,6 +23,8 @@
 #include "watchdog.h"
 #endif
 
+extern void update_preemption(void);  // Declaração da função definida em proc.c
+
 /* Function prototype for PRIVATE functions.
  */
 static void load_update(void);
