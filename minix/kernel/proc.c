@@ -1594,10 +1594,15 @@ asyn_error:
   return(OK);
 }
 
+void cause_scheduling(void) {
+    get_cpulocal_var(proc_ptr)->p_misc_flags |= MF_NEED_RESCHED;
+}
+
 /*===========================================================================*
  *				enqueue					     * 
  *===========================================================================*/
 void enqueue(struct proc *rp) {
+    interrupts_disable();
     int priority = rp->p_priority;
     struct proc *current = get_cpulocal_var(running_ptr);
     
@@ -1611,6 +1616,7 @@ void enqueue(struct proc *rp) {
     if (current && rp->p_priority < current->p_priority) {
         cause_scheduling();
     }
+    interrupts_enable();
 }
 /*===========================================================================*
  *				enqueue_head				     *
