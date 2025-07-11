@@ -41,10 +41,10 @@
 
 #include <minix/syslib.h>
 
-struct proc *priority_queues[NUM_PRIORITIES][QUEUE_SIZE_PER_PRIORITY];
-int queue_front[NUM_PRIORITIES] = {0};
-int queue_rear[NUM_PRIORITIES] = {0};
-EXTERN unsigned preemption_count = PREEMPTION_TICKS;  // Valor inicial
+struct proc *prio_queues[NR_PRIO_QUEUES][TAM_MAX_FILA];
+int prio_queue_counts[NR_PRIO_QUEUES] = {0};
+int prio_queue_front[NR_PRIO_QUEUES] = {0};
+int prio_queue_rear[NR_PRIO_QUEUES] = {0};
 
 /* Scheduling and message passing functions */
 static void idle(void);
@@ -1602,21 +1602,21 @@ void cause_scheduling(void) {
  *				enqueue					     * 
  *===========================================================================*/
 void enqueue(struct proc *rp) {
-    interrupts_disable();
+    assert(proc_is_runnable(rp));
     int priority = rp->p_priority;
-    struct proc *current = get_cpulocal_var(running_ptr);
     
-    // Insere na fila de prioridade
-    if ((queue_rear[priority] + 1) % QUEUE_SIZE_PER_PRIORITY != queue_front[priority]) {
-        priority_queues[priority][queue_rear[priority]] = rp;
-        queue_rear[priority] = (queue_rear[priority] + 1) % QUEUE_SIZE_PER_PRIORITY;
+    if (priority < MIN_PRIO) priority = MIN_PRIO;
+    if (priority > MAX_PRIO) priority = MAX_PRIO;
+    
+    if (prio_queue_counts[priority] >= TAM_MAX_FILA) {
+        panic("Fila de prioridade cheia!");
     }
     
-    // Dispara preempção se o novo processo tem prioridade maior
-    if (current && rp->p_priority < current->p_priority) {
-        cause_scheduling();
-    }
-    interrupts_enable();
+    prio_queues[priority][prio_queue_rear[priority]] = rp;
+    prio_queue_rear[priority] = (prio_queue_rear[priority] + 1) % TAM_MAX_FILA;
+    prio_queue_counts[priority]++;
+    
+    read_tsc_64(&rp->p_accounting.enter_queue);
 }
 /*===========================================================================*
  *				enqueue_head				     *
@@ -1637,25 +1637,28 @@ void enqueue_head(struct proc *rp) {
  *				dequeue					     * 
  *===========================================================================*/
 void dequeue(struct proc *rp) {
-    assert(!proc_is_runnable(rp));
     int priority = rp->p_priority;
-    int i = queue_front[priority];
-    int j;
+    int i;
     
-    while (i != queue_rear[priority]) {
-        if (priority_queues[priority][i] == rp) {
-            j = i;
-            int real_rear = (queue_rear[priority] - 1 + QUEUE_SIZE_PER_PRIORITY) % QUEUE_SIZE_PER_PRIORITY;
-            
-            while (j != real_rear) {
-                priority_queues[priority][j] = priority_queues[priority][(j + 1) % QUEUE_SIZE_PER_PRIORITY];
-                j = (j + 1) % QUEUE_SIZE_PER_PRIORITY;
+    assert(!proc_is_runnable(rp));
+    
+    if (priority < MIN_PRIO) priority = MIN_PRIO;
+    if (priority > MAX_PRIO) priority = MAX_PRIO;
+    
+    // Procura o processo na fila de sua prioridade
+    for (i = prio_queue_front[priority]; i != prio_queue_rear[priority]; 
+         i = (i + 1) % TAM_MAX_FILA) {
+        if (prio_queues[priority][i] == rp) {
+            // Remove o processo da fila
+            int j;
+            for (j = i; j != (prio_queue_rear[priority] - 1 + TAM_MAX_FILA) % TAM_MAX_FILA; 
+                 j = (j + 1) % TAM_MAX_FILA) {
+                prio_queues[priority][j] = prio_queues[priority][(j + 1) % TAM_MAX_FILA];
             }
-            
-            queue_rear[priority] = real_rear;
+            prio_queue_rear[priority] = (prio_queue_rear[priority] - 1 + TAM_MAX_FILA) % TAM_MAX_FILA;
+            prio_queue_counts[priority]--;
             break;
         }
-        i = (i + 1) % QUEUE_SIZE_PER_PRIORITY;
     }
     
     rp->p_accounting.dequeues++;
@@ -1669,35 +1672,30 @@ void dequeue(struct proc *rp) {
     rp->p_dequeued = get_monotonic();
 }
 
-/* Função de preempção por tempo (chamada no timer tick) */
-void update_preemption(void) {
-    struct proc *current = get_cpulocal_var(running_ptr);
-    if (current && --preemption_count <= 0) {
-        cause_scheduling();  // Força uma nova decisão de escalonamento
-    }
-}
-
 /*===========================================================================*
  *				pick_proc				     * 
  *===========================================================================*/
-static struct proc *pick_proc(void) {
-    struct proc *rp, *current = get_cpulocal_var(running_ptr);
+static struct proc * pick_proc(void) {
+    struct proc *rp;
+    int priority;
     
-    // Se o processo atual ainda tem ticks restantes, continua
-    if (current && preemption_count > 0) {
-        preemption_count--;
-        return current;
-    }
-    
-    // Busca o próximo processo de maior prioridade
-    for (int prio = 0; prio < NUM_PRIORITIES; prio++) {
-        if (queue_front[prio] != queue_rear[prio]) {
-            rp = priority_queues[prio][queue_front[prio]];
-            queue_front[prio] = (queue_front[prio] + 1) % QUEUE_SIZE_PER_PRIORITY;
-            preemption_count = PREEMPTION_TICKS;  // Reseta o contador
+    // Procura da maior prioridade (menor número) para a menor
+    for (priority = MIN_PRIO; priority <= MAX_PRIO; priority++) {
+        if (prio_queue_counts[priority] > 0) {
+            // Pega o primeiro processo da fila desta prioridade
+            rp = prio_queues[priority][prio_queue_front[priority]];
+            prio_queue_front[priority] = (prio_queue_front[priority] + 1) % TAM_MAX_FILA;
+            prio_queue_counts[priority]--;
+            
+            assert(proc_is_runnable(rp));
+            if (priv(rp)->s_flags & BILLABLE) {
+                get_cpulocal_var(bill_ptr) = rp;
+            }
             return rp;
         }
     }
+    
+    // Nenhum processo encontrado
     return NULL;
 }
 
