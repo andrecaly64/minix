@@ -350,20 +350,66 @@ void init_scheduling(void)
  * quantum. This function will find all proccesses that have been bumped down,
  * and pulls them back up. This default policy will soon be changed.
  */
-void balance_queues(void)
+#include <minix/com.h>
+#include <minix/sched.h>
+#include "sched.h"
+#include "assert.h"
+
+/* Parâmetros de configuração */
+#define AGING_THRESHOLD   5  /* Ciclos de scheduling antes de aumentar prioridade */
+#define IO_BOOST_BONUS    2  /* Bônus de prioridade para processos I/O-bound */
+#define CPU_PENALTY       1  /* Penalidade para processos CPU-bound */
+#define MAX_BOOST         3  /* Máximo de níveis de prioridade que um processo pode subir */
+
+/* Estrutura auxiliar para rastrear tempo de espera */
+PRIVATE struct {
+    unsigned cycles;       /* Contador de ciclos de scheduling */
+} sched_state;
+
+/*----------------------------------------------------------------------------*
+ * balance_queues()                                                           *
+ *                                                                            *
+ * Ajusta dinamicamente as prioridades para:                                  *
+ *   - Evitar starvation (aging)                                              *
+ *   - Priorizar processos I/O-bound                                          *
+ *   - Penalizar processos CPU-bound monopolizadores                          *
+ *----------------------------------------------------------------------------*/
+PRIVATE void balance_queues(void)
 {
-	struct schedproc *rmp;
-	int r, proc_nr;
+    struct proc *rp;
+    int i, new_prio;
 
-	for (proc_nr=0, rmp=schedproc; proc_nr < NR_PROCS; proc_nr++, rmp++) {
-		if (rmp->flags & IN_USE) {
-			if (rmp->priority > rmp->max_priority) {
-				rmp->priority -= 1; /* increase priority */
-				schedule_process_local(rmp);
-			}
-		}
-	}
+    /* Incrementa o contador de ciclos */
+    sched_state.cycles++;
 
-	if ((r = sys_setalarm(balance_timeout, 0)) != OK)
-		panic("sys_setalarm failed: %d", r);
+    /* Percorre todos os processos */
+    for (i = 0; i < NR_TASKS + NR_PROCS; i++) {
+        rp = &proc[i];
+
+        /* Ignora processos não executáveis ou do kernel */
+        if (!proc_is_runnable(rp) continue;
+        if (rp->p_priority < USER_Q) continue;
+
+        /* Aging: aumenta prioridade de processos esperando muito */
+        if (rp->p_accounting.time_in_queue > AGING_THRESHOLD * rp->p_accounting.dequeues) {
+            new_prio = rp->p_priority - 1;  /* Prioridade mais alta = número menor */
+            new_prio = MAX(new_prio, MIN_USER_Q);
+            rp->p_priority = new_prio;
+            rp->p_accounting.time_in_queue = 0;  /* Reseta o contador */
+        }
+
+        /* I/O-Boost: aumenta prioridade de processos I/O-bound */
+        if (rp->p_accounting.io_ops > rp->p_accounting.cpu_ops) {
+            new_prio = rp->p_priority - IO_BOOST_BONUS;
+            new_prio = MAX(new_prio, MIN_USER_Q);
+            rp->p_priority = new_prio;
+        }
+
+        /* CPU-Penalty: reduz prioridade de processos CPU-bound */
+        else if (rp->p_accounting.cpu_ops > rp->p_accounting.io_ops * 2) {
+            new_prio = rp->p_priority + CPU_PENALTY;
+            new_prio = MIN(new_prio, MAX_USER_Q);
+            rp->p_priority = new_prio;
+        }
+    }
 }
